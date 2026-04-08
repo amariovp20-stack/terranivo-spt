@@ -1,0 +1,60 @@
+{
+  "project_id": "proyecto-spt2",
+  "name": "Proyecto SPT2",
+  "created_at": "2026-04-08T13:53:41.757565Z",
+  "updated_at": "2026-04-08T13:53:41.757565Z",
+  "data": {
+    "config": {
+      "project": "Proyecto SPT2",
+      "borehole": "BH-01",
+      "water_table": 5.0,
+      "footing_width_m": 2.0,
+      "energy_ratio_percent": 60.0,
+      "nu_sand": 0.3,
+      "nu_clay": 0.35,
+      "gamma_preset_sand": 19.0,
+      "gamma_preset_clay": 18.0
+    },
+    "layers": [
+      {
+        "top": 0.0,
+        "bottom": 1.5,
+        "family": "sand",
+        "soil": "SM",
+        "n_raw": 8.0,
+        "borehole_diameter_in": 4.5,
+        "sampler": "standard",
+        "plasticity": "low",
+        "gamma_manual": null,
+        "description": "",
+        "observations": ""
+      },
+      {
+        "top": 1.5,
+        "bottom": 4.5,
+        "family": "clay",
+        "soil": "CL",
+        "n_raw": 12.0,
+        "borehole_diameter_in": 4.5,
+        "sampler": "standard",
+        "plasticity": "low",
+        "gamma_manual": null,
+        "description": "",
+        "observations": ""
+      },
+      {
+        "top": 4.5,
+        "bottom": 8.0,
+        "family": "sand",
+        "soil": "SP",
+        "n_raw": 22.0,
+        "borehole_diameter_in": 4.5,
+        "sampler": "standard",
+        "plasticity": "low",
+        "gamma_manual": null,
+        "description": "",
+        "observations": ""
+      }
+    ]
+  }
+}
