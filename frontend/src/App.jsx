@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import LayerForm from './components/LayerForm'
 import StratigraphyChart from './components/StratigraphyChart'
 
-const API_URL = 'http://127.0.0.1:8000'
+const API_URL = "https://TU-BACKEND.onrender.com"
 
 const layerTemplate = (idx, top = 0, bottom = 1.5, family = 'sand', soil = 'SM', n_raw = 8) => ({
   idx,
