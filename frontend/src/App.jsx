@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import LayerForm from './components/LayerForm'
@@ -6,6 +6,7 @@ import StratigraphyChart from './components/StratigraphyChart'
 import { calculateSPT } from './utils/sptCalculations'
 
 const STORAGE_KEY = 'terranivo_spt_projects'
+const ACCESS_EMAILS = ['amariovp20@gmail.com', 'geoservi.lab@gmail.com']
 
 const layerTemplate = (idx, top = 0, bottom = 1.5, family = 'sand', soil = 'SM', n_raw = 8) => ({
   idx,
@@ -43,6 +44,11 @@ const initialLayers = [
 const LOGO_PATH = '/terranivo-logo.jpeg'
 
 export default function App() {
+  const [accessEmail, setAccessEmail] = useState('')
+  const [authReady, setAuthReady] = useState(false)
+  const [authBusy, setAuthBusy] = useState(false)
+  const [authUnavailable, setAuthUnavailable] = useState('')
+  const [loginError, setLoginError] = useState('')
   const [config, setConfig] = useState(initialConfig)
   const [layers, setLayers] = useState(initialLayers)
   const [result, setResult] = useState(null)
@@ -77,6 +83,39 @@ export default function App() {
     [config, layers]
   )
 
+  useEffect(() => {
+    const authContext = setupFirebaseAuth()
+
+    if (!authContext.ok) {
+      setAuthUnavailable(authContext.message)
+      setAuthReady(true)
+      return undefined
+    }
+
+    const unsubscribe = authContext.auth.onAuthStateChanged(async (user) => {
+      if (!user?.email) {
+        setAccessEmail('')
+        setAuthReady(true)
+        return
+      }
+
+      const normalizedEmail = user.email.trim().toLowerCase()
+      if (!ACCESS_EMAILS.includes(normalizedEmail)) {
+        setAccessEmail('')
+        setLoginError('Tu cuenta no esta habilitada para usar este programa.')
+        await authContext.auth.signOut()
+        setAuthReady(true)
+        return
+      }
+
+      setAccessEmail(normalizedEmail)
+      setLoginError('')
+      setAuthReady(true)
+    })
+
+    return () => unsubscribe()
+  }, [])
+
   const updateLayer = (idx, key, value) => {
     setLayers((prev) =>
       prev.map((layer) => {
@@ -87,6 +126,39 @@ export default function App() {
         return { ...layer, [key]: value }
       })
     )
+  }
+
+  const handleAccess = async () => {
+    const authContext = setupFirebaseAuth()
+    if (!authContext.ok) {
+      setAuthUnavailable(authContext.message)
+      setLoginError(authContext.message)
+      return
+    }
+
+    try {
+      setAuthBusy(true)
+      setLoginError('')
+      await authContext.auth.signInWithPopup(authContext.provider)
+    } catch (err) {
+      setLoginError(mapAuthError(err))
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  const closeSession = async () => {
+    const authContext = setupFirebaseAuth()
+    setAccessEmail('')
+    setLoginError('')
+
+    if (!authContext.ok) return
+
+    try {
+      await authContext.auth.signOut()
+    } catch {
+      setLoginError('No se pudo cerrar la sesion. Intenta nuevamente.')
+    }
   }
 
   const addLayer = () => {
@@ -359,6 +431,52 @@ export default function App() {
     }
   }
 
+  if (!accessEmail) {
+    return (
+      <div className="page">
+        <section className="hero">
+          <div className="heroBrand">
+            <div className="heroLogoFrame">
+              <img className="heroLogo" src={LOGO_PATH} alt="Logo de Terranivo SPT" />
+            </div>
+            <div>
+            <h1>Terranivo SPT</h1>
+            <p>
+                Acceso restringido con Google. Solo pueden ingresar los correos que se
+                encuentren habilitados en la lista de autorizacion.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section className="accessShell">
+          <section className="panel accessPanel">
+            <div className="stageTag">Acceso</div>
+            <h2>Ingreso con Google</h2>
+            <p className="sectionLead">
+              Inicia sesion con Google. El sistema solo dejara entrar a los correos autorizados.
+            </p>
+
+            <div className="buttonRow">
+              <button onClick={handleAccess} disabled={authBusy || !authReady || Boolean(authUnavailable)}>
+                {authBusy ? 'Ingresando...' : 'Ingresar con Google'}
+              </button>
+            </div>
+
+            {!authReady && <div className="emptyBox">Preparando autenticacion...</div>}
+            {authUnavailable && <div className="alert">{authUnavailable}</div>}
+            {loginError && <div className="alert">{loginError}</div>}
+
+            <div className="allowedBox">
+              <strong>Correos habilitados actualmente</strong>
+              <small>{ACCESS_EMAILS.join(' | ')}</small>
+            </div>
+          </section>
+        </section>
+      </div>
+    )
+  }
+
   return (
     <div className="page">
       <section className="hero">
@@ -372,6 +490,7 @@ export default function App() {
               Software geotecnico para cargar informacion general, colocar perfiles,
               revisar graficos y resultados, y generar el reporte tecnico.
             </p>
+            <small className="sessionBadge">Sesion habilitada para: {accessEmail}</small>
           </div>
         </div>
       </section>
@@ -614,6 +733,9 @@ export default function App() {
               <button className="secondary" onClick={newProject}>
                 Nuevo proyecto
               </button>
+              <button className="secondary" onClick={closeSession}>
+                Cerrar sesion
+              </button>
             </div>
           </section>
 
@@ -769,4 +891,55 @@ function loadImageAsDataUrl(src) {
     image.onerror = () => reject(new Error('No se pudo cargar el logo para el PDF.'))
     image.src = src
   })
+}
+
+function setupFirebaseAuth() {
+  const firebase = window.firebase
+  if (!firebase?.initializeApp || !firebase?.auth) {
+    return {
+      ok: false,
+      message: 'Firebase Auth no esta disponible. Revisa la configuracion del proyecto.',
+    }
+  }
+
+  const config = getFirebaseConfig()
+  if (!config) {
+    return {
+      ok: false,
+      message:
+        'Faltan variables VITE_FIREBASE_* en el entorno. Configuralas en local y en Vercel.',
+    }
+  }
+
+  const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(config)
+  const auth = firebase.auth(app)
+  const provider = new firebase.auth.GoogleAuthProvider()
+  provider.setCustomParameters({ prompt: 'select_account' })
+
+  return { ok: true, auth, provider }
+}
+
+function getFirebaseConfig() {
+  const config = {
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+    appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  }
+
+  return Object.values(config).every(Boolean) ? config : null
+}
+
+function mapAuthError(error) {
+  const code = error?.code || ''
+  if (code === 'auth/popup-closed-by-user') {
+    return 'Se cerro la ventana de acceso antes de completar el inicio de sesion.'
+  }
+  if (code === 'auth/popup-blocked') {
+    return 'El navegador bloqueo la ventana emergente de Google. Habilita popups e intenta nuevamente.'
+  }
+  if (code === 'auth/cancelled-popup-request') {
+    return 'Ya existe una ventana de acceso abierta. Completa esa ventana primero.'
+  }
+  return 'No se pudo iniciar sesion con Google.'
 }
