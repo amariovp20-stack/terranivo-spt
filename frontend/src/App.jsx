@@ -554,30 +554,101 @@ export default function App() {
         },
       })
 
-      const reportLines = doc.splitTextToSize(computed.report_text, 260)
       doc.addPage()
       addPdfHeader(doc, logoDataUrl, payload, reportDate)
       addPdfFooter(doc)
       y = 52
 
-      doc.setFontSize(15)
-      doc.setTextColor(15, 63, 118)
-      doc.text('Informe tecnico consolidado', 14, y)
-      y += 8
-
-      doc.setFontSize(10)
-      doc.setTextColor(33, 37, 41)
-
-      reportLines.forEach((line) => {
-        if (y > bottomLimit) {
+      y = addPdfSectionTitle(doc, 'Informe tecnico consolidado', y)
+      y = addParagraph(
+        doc,
+        'Sintesis preliminar de parametros geotecnicos estimados por SPT para apoyo de evaluacion inicial. Los valores deben verificarse con criterio tecnico, laboratorio y experiencia local.',
+        14,
+        y,
+        260,
+        bottomLimit,
+        () => {
           doc.addPage()
           addPdfHeader(doc, logoDataUrl, payload, reportDate)
           addPdfFooter(doc)
-          y = 52
+          return 52
         }
-        doc.text(line, 14, y)
-        y += 5.4
-      })
+      )
+
+      y += 3
+      y = addPdfMiniTitle(doc, 'Resumen ejecutivo', y)
+      y = addBulletList(
+        doc,
+        [
+          `Estratos evaluados: ${computed.summary.layer_count}`,
+          `Profundidad total: ${computed.summary.total_depth_m.toFixed(2)} m`,
+          `N60 promedio: ${computed.summary.n60_avg.toFixed(1)}`,
+          `(N1,60)* promedio: ${computed.summary.n160_avg.toFixed(1)}`,
+          `Gamma promedio: ${computed.summary.gamma_avg_kn_m3.toFixed(1)} kN/m3`,
+          `Densidad promedio: ${computed.summary.rho_avg_kg_m3.toFixed(0)} kg/m3`,
+          `ks promedio: ${computed.summary.ks_avg_mn_m3.toFixed(1)} MN/m3`,
+          `qadm minima: ${computed.summary.qadm_min_kpa.toFixed(1)} kPa`,
+        ],
+        18,
+        y,
+        252,
+        bottomLimit,
+        () => {
+          doc.addPage()
+          addPdfHeader(doc, logoDataUrl, payload, reportDate)
+          addPdfFooter(doc)
+          return 52
+        }
+      )
+
+      y += 3
+      y = addPdfMiniTitle(doc, 'Estrato de desplante adoptado', y)
+      y = addBulletList(
+        doc,
+        [
+          computed.summary.foundation_layer_idx !== null
+            ? `Estrato seleccionado: ${computed.summary.foundation_layer_idx}`
+            : 'Estrato seleccionado: no disponible',
+          computed.summary.foundation_gamma_kn_m3 !== null
+            ? `Gamma adoptado: ${computed.summary.foundation_gamma_kn_m3.toFixed(1)} kN/m3`
+            : 'Gamma adoptado: no disponible',
+          computed.summary.foundation_nu !== null
+            ? `Nu adoptado: ${computed.summary.foundation_nu.toFixed(2)}`
+            : 'Nu adoptado: no disponible',
+        ],
+        18,
+        y,
+        252,
+        bottomLimit,
+        () => {
+          doc.addPage()
+          addPdfHeader(doc, logoDataUrl, payload, reportDate)
+          addPdfFooter(doc)
+          return 52
+        }
+      )
+
+      y += 3
+      y = addPdfMiniTitle(doc, 'Observaciones tecnicas', y)
+      y = addBulletList(
+        doc,
+        [
+          'Los parametros derivados del SPT corresponden a correlaciones empiricas preliminares.',
+          'La capacidad portante clasica asume carga vertical centrada, base horizontal y factores de inclinacion iguales a 1.',
+          `El ks depende del ancho de cimentacion B=${Number(payload.config.footing_width_m).toFixed(2)} m.`,
+          'Los resultados deben contrastarse con laboratorio, estratigrafia local y criterio geotecnico de diseno.',
+        ],
+        18,
+        y,
+        252,
+        bottomLimit,
+        () => {
+          doc.addPage()
+          addPdfHeader(doc, logoDataUrl, payload, reportDate)
+          addPdfFooter(doc)
+          return 52
+        }
+      )
 
       const pageCount = doc.getNumberOfPages()
       for (let page = 1; page <= pageCount; page += 1) {
@@ -1120,6 +1191,13 @@ function addPdfSectionTitle(doc, title, y) {
   return y + 8
 }
 
+function addPdfMiniTitle(doc, title, y) {
+  doc.setFontSize(12)
+  doc.setTextColor(29, 78, 137)
+  doc.text(title, 14, y)
+  return y + 6
+}
+
 function addParagraph(doc, text, x, y, width, bottomLimit, addPage) {
   const lines = doc.splitTextToSize(text, width)
   doc.setFontSize(10)
@@ -1131,6 +1209,24 @@ function addParagraph(doc, text, x, y, width, bottomLimit, addPage) {
     }
     doc.text(line, x, y)
     y += 5.4
+  })
+
+  return y
+}
+
+function addBulletList(doc, items, x, y, width, bottomLimit, addPage) {
+  doc.setFontSize(10)
+  doc.setTextColor(33, 37, 41)
+
+  items.forEach((item) => {
+    const lines = doc.splitTextToSize(`- ${item}`, width)
+    lines.forEach((line) => {
+      if (y > bottomLimit) {
+        y = addPage()
+      }
+      doc.text(line, x, y)
+      y += 5.2
+    })
   })
 
   return y
