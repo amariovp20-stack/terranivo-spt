@@ -428,20 +428,124 @@ export default function App() {
         },
       })
 
-      const reportLines = doc.splitTextToSize(computed.report_text, 260)
-      let y = doc.lastAutoTable.finalY + 12
+      doc.addPage()
+      addPdfHeader(doc, logoDataUrl, payload, reportDate)
+      addPdfFooter(doc)
+
+      let y = 52
       const pageHeight = doc.internal.pageSize.getHeight()
       const bottomLimit = pageHeight - 22
 
-      doc.setFontSize(15)
-      if (y > bottomLimit - 20) {
+      y = addPdfSectionTitle(doc, 'Correlaciones empiricas SPT', y)
+      y = addParagraph(doc, 'Las siguientes correlaciones se derivan de N, N60 y (N1,60)* para estimar densidad, resistencia y rigidez de forma preliminar.', 14, y, 260, bottomLimit, () => {
         doc.addPage()
         addPdfHeader(doc, logoDataUrl, payload, reportDate)
         addPdfFooter(doc)
-        y = 52
-      }
+        return 52
+      })
+
+      autoTable(doc, {
+        startY: y + 4,
+        head: [['Estrato', 'Tipo', 'N60', '(N1,60)*', 'Gamma', 'Rho', 'Dr', "phi'/Su", 'Es', 'ks']],
+        body: computed.layers.map((x) => [
+          `E-${x.idx}`,
+          x.soil,
+          x.n60.toFixed(1),
+          x.n160_star.toFixed(1),
+          `${x.gamma.toFixed(1)} kN/m3`,
+          `${x.rho_kg_m3.toFixed(0)} kg/m3`,
+          x.dr_pct !== null ? `${x.dr_pct.toFixed(0)} %` : '-',
+          x.phi_deg !== null ? `${x.phi_deg.toFixed(1)} grados` : `${x.su_kpa.toFixed(1)} kPa`,
+          `${x.es_mpa.toFixed(1)} MPa`,
+          `${x.ks_mn_m3.toFixed(1)} MN/m3`,
+        ]),
+        theme: 'grid',
+        styles: {
+          fontSize: 8.6,
+          cellPadding: 2.2,
+          lineColor: [210, 217, 226],
+          lineWidth: 0.2,
+          textColor: [31, 41, 55],
+          overflow: 'linebreak',
+          halign: 'center',
+          valign: 'middle',
+        },
+        headStyles: {
+          fillColor: [15, 75, 132],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+        },
+        alternateRowStyles: {
+          fillColor: [247, 250, 252],
+        },
+        margin: { top: 40, right: 14, bottom: 16, left: 14 },
+        didDrawPage: () => {
+          addPdfHeader(doc, logoDataUrl, payload, reportDate)
+          addPdfFooter(doc)
+        },
+      })
+
+      doc.addPage()
+      addPdfHeader(doc, logoDataUrl, payload, reportDate)
+      addPdfFooter(doc)
+      y = 52
+
+      y = addPdfSectionTitle(doc, 'Capacidad portante clasica', y)
+      y = addParagraph(doc, computed.bearing_capacity.assumptions, 14, y, 260, bottomLimit, () => {
+        doc.addPage()
+        addPdfHeader(doc, logoDataUrl, payload, reportDate)
+        addPdfFooter(doc)
+        return 52
+      })
+
+      autoTable(doc, {
+        startY: y + 4,
+        head: [['Metodo', 'qult (kPa)', 'qadm (kPa)', 'Nc', 'Nq', 'Ngamma', 'Comentario']],
+        body: computed.bearing_capacity.methods.map((method) => [
+          method.method,
+          method.qult_kpa.toFixed(1),
+          method.qadm_kpa.toFixed(1),
+          method.nc.toFixed(2),
+          method.nq.toFixed(2),
+          method.ngamma.toFixed(2),
+          `Base en estrato ${computed.bearing_capacity.selected_layer_idx}`,
+        ]),
+        theme: 'grid',
+        styles: {
+          fontSize: 9,
+          cellPadding: 2.5,
+          lineColor: [210, 217, 226],
+          lineWidth: 0.2,
+          textColor: [31, 41, 55],
+          overflow: 'linebreak',
+        },
+        headStyles: {
+          fillColor: [29, 111, 87],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+        },
+        alternateRowStyles: {
+          fillColor: [248, 251, 249],
+        },
+        columnStyles: {
+          6: { cellWidth: 58 },
+        },
+        margin: { top: 40, right: 14, bottom: 16, left: 14 },
+        didDrawPage: () => {
+          addPdfHeader(doc, logoDataUrl, payload, reportDate)
+          addPdfFooter(doc)
+        },
+      })
+
+      const reportLines = doc.splitTextToSize(computed.report_text, 260)
+      doc.addPage()
+      addPdfHeader(doc, logoDataUrl, payload, reportDate)
+      addPdfFooter(doc)
+      y = 52
+
+      doc.setFontSize(15)
       doc.setTextColor(15, 63, 118)
-      doc.text('Reporte tecnico', 14, y)
+      doc.text('Informe tecnico consolidado', 14, y)
       y += 8
 
       doc.setFontSize(10)
@@ -457,19 +561,6 @@ export default function App() {
         doc.text(line, 14, y)
         y += 5.4
       })
-
-      if (y > bottomLimit - 8) {
-        doc.addPage()
-        addPdfHeader(doc, logoDataUrl, payload, reportDate)
-        addPdfFooter(doc)
-        y = pageHeight - 12
-      } else {
-        y += 4
-      }
-
-      doc.setFontSize(10)
-      doc.setTextColor(79, 91, 105)
-      doc.text('Marca registrada: Geoservi Lab', 14, Math.min(y, pageHeight - 12))
 
       const pageCount = doc.getNumberOfPages()
       for (let page = 1; page <= pageCount; page += 1) {
@@ -1026,6 +1117,29 @@ function addPdfFooter(doc, pageNumber, pageCount) {
       align: 'right',
     })
   }
+}
+
+function addPdfSectionTitle(doc, title, y) {
+  doc.setFontSize(15)
+  doc.setTextColor(15, 63, 118)
+  doc.text(title, 14, y)
+  return y + 8
+}
+
+function addParagraph(doc, text, x, y, width, bottomLimit, addPage) {
+  const lines = doc.splitTextToSize(text, width)
+  doc.setFontSize(10)
+  doc.setTextColor(33, 37, 41)
+
+  lines.forEach((line) => {
+    if (y > bottomLimit) {
+      y = addPage()
+    }
+    doc.text(line, x, y)
+    y += 5.4
+  })
+
+  return y
 }
 
 function loadImageAsDataUrl(src) {
