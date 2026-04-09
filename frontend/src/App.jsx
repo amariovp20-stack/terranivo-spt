@@ -33,10 +33,6 @@ const initialConfig = {
   footing_shape: 'rectangular',
   safety_factor: 3.0,
   energy_ratio_percent: 60,
-  nu_sand: 0.3,
-  nu_clay: 0.35,
-  gamma_preset_sand: 19.0,
-  gamma_preset_clay: 18.0,
 }
 
 const initialLayers = [
@@ -70,10 +66,6 @@ export default function App() {
         foundation_depth_m: Number(config.foundation_depth_m),
         safety_factor: Number(config.safety_factor),
         energy_ratio_percent: Number(config.energy_ratio_percent),
-        nu_sand: Number(config.nu_sand),
-        nu_clay: Number(config.nu_clay),
-        gamma_preset_sand: Number(config.gamma_preset_sand),
-        gamma_preset_clay: Number(config.gamma_preset_clay),
       },
       layers: layers.map((layer) => ({
         ...layer,
@@ -721,54 +713,14 @@ export default function App() {
         <div className="grid2">
           <Field label="ER (%)">
             <input
-                type="number"
-                step="0.1"
-                value={config.energy_ratio_percent}
-                onChange={(e) => setConfig({ ...config, energy_ratio_percent: e.target.value })}
-              />
-            </Field>
-
-            <Field label="Nu arena">
-              <input
-                type="number"
-                step="0.01"
-                value={config.nu_sand}
-                onChange={(e) => setConfig({ ...config, nu_sand: e.target.value })}
-              />
-            </Field>
-          </div>
-
-          <div className="grid2">
-            <Field label="Nu arcilla">
-              <input
-                type="number"
-                step="0.01"
-                value={config.nu_clay}
-                onChange={(e) => setConfig({ ...config, nu_clay: e.target.value })}
-              />
-            </Field>
-
-            <Field label="Gamma preset arena">
-              <input
-                type="number"
-                step="0.1"
-                value={config.gamma_preset_sand}
-                onChange={(e) => setConfig({ ...config, gamma_preset_sand: e.target.value })}
-              />
-            </Field>
-          </div>
-
-          <div className="grid2">
-            <Field label="Gamma preset arcilla">
-              <input
-                type="number"
-                step="0.1"
-                value={config.gamma_preset_clay}
-                onChange={(e) => setConfig({ ...config, gamma_preset_clay: e.target.value })}
-              />
-            </Field>
-            <div />
-          </div>
+              type="number"
+              step="0.1"
+              value={config.energy_ratio_percent}
+              onChange={(e) => setConfig({ ...config, energy_ratio_percent: e.target.value })}
+            />
+          </Field>
+          <div />
+        </div>
         </section>
 
         <section className="panel panelProjects topStagePanel">
@@ -876,6 +828,22 @@ export default function App() {
                   <Metric
                     label="Densidad promedio"
                     value={`${result.summary.rho_avg_kg_m3.toFixed(0)} kg/m3`}
+                  />
+                  <Metric
+                    label="Gamma estrato de desplante"
+                    value={
+                      result.summary.foundation_gamma_kn_m3 !== null
+                        ? `${result.summary.foundation_gamma_kn_m3.toFixed(1)} kN/m3`
+                        : '-'
+                    }
+                  />
+                  <Metric
+                    label="Nu estrato de desplante"
+                    value={
+                      result.summary.foundation_nu !== null
+                        ? result.summary.foundation_nu.toFixed(2)
+                        : '-'
+                    }
                   />
                   <Metric
                     label="Es promedio"

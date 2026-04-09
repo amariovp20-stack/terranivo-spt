@@ -18,7 +18,7 @@ export function calculateSPT(payload) {
     const gammaGuess =
       layer.gamma_manual !== null && layer.gamma_manual !== '' && layer.gamma_manual !== undefined
         ? Number(layer.gamma_manual)
-        : gammaPreset(family, soil, n60Star, cfg)
+        : gammaEstimated(family, soil, n60Star)
 
     return {
       idx: i + 1,
@@ -61,11 +61,11 @@ export function calculateSPT(payload) {
     const gamma =
       layer.gammaManual !== null
         ? layer.gammaManual
-        : gammaPreset(layer.family, layer.soil, n160Star, cfg)
+        : gammaEstimated(layer.family, layer.soil, n160Star)
 
     const phiDeg = layer.family === 'sand' ? phiSand(n160Star) : null
     const suKpa = layer.family === 'clay' ? suClayKPa(layer.n60, layer.plasticity) : null
-    const nu = layer.family === 'sand' ? Number(cfg.nu_sand) : Number(cfg.nu_clay)
+    const nu = poissonEstimated(layer.family, n160Star, layer.plasticity)
     const esMpa = esMPa(layer.family, layer.soil, n160Star)
     const mMpa = constrainedModulus(esMpa, nu)
     const ksMnM3 = mMpa / Number(cfg.footing_width_m)
@@ -100,6 +100,7 @@ export function calculateSPT(payload) {
       gamma,
       rho_kg_m3: rhoKgM3,
       dr_pct: relativeDensityPct,
+      nu,
       phi_deg: phiDeg,
       su_kpa: suKpa,
       es_mpa: esMpa,
@@ -113,6 +114,7 @@ export function calculateSPT(payload) {
 
   const totalDepth = Math.max(...layersOut.map((x) => x.bottom), 0)
   const bearingCapacity = calculateBearingCapacities(cfg, layersOut)
+  const foundationLayer = getLayerAtDepth(layersOut, Math.max(Number(cfg.foundation_depth_m) || 0, 0))
 
   const summary = {
     layer_count: layersOut.length,
@@ -127,9 +129,12 @@ export function calculateSPT(payload) {
     es_avg_mpa: average(esValues),
     ks_avg_mn_m3: average(ksValues),
     qadm_min_kpa: bearingCapacity.qadm_min_kpa,
+    foundation_layer_idx: foundationLayer?.idx ?? null,
+    foundation_gamma_kn_m3: foundationLayer?.gamma ?? null,
+    foundation_nu: foundationLayer?.nu ?? null,
   }
 
-  const reportText = buildReportText(cfg, summary, layersOut, bearingCapacity)
+  const reportText = buildReportText(cfg, summary, layersOut, bearingCapacity, foundationLayer)
 
   return {
     summary,
@@ -166,9 +171,9 @@ function getCB(diameterIn, family) {
   return 1.15
 }
 
-function gammaPreset(family, soil, n160, cfg) {
+function gammaEstimated(family, soil, n160) {
   if (family === 'sand') {
-    let g = Number(cfg.gamma_preset_sand)
+    let g = 17.8
     if (['GW', 'GP', 'GM', 'GC'].includes(soil)) g += 0.5
     if (['SM', 'SC', 'ML'].includes(soil)) g -= 0.5
     if (n160 > 30) g += 0.5
@@ -177,12 +182,30 @@ function gammaPreset(family, soil, n160, cfg) {
     return clamp(g, 16.5, 21.5)
   }
 
-  let g = Number(cfg.gamma_preset_clay)
+  let g = 17.2
   if (['CH', 'OH', 'MH'].includes(soil)) g -= 0.4
   if (n160 > 20) g += 0.4
   if (n160 > 35) g += 0.4
   if (n160 < 8) g -= 0.6
   return clamp(g, 15.5, 20.5)
+}
+
+function poissonEstimated(family, n160, plasticity) {
+  if (family === 'sand') {
+    if (n160 < 10) return 0.34
+    if (n160 < 30) return 0.31
+    return 0.28
+  }
+
+  if (plasticity === 'high') {
+    if (n160 < 8) return 0.47
+    if (n160 < 20) return 0.44
+    return 0.41
+  }
+
+  if (n160 < 8) return 0.42
+  if (n160 < 20) return 0.39
+  return 0.36
 }
 
 function effectiveStressAt(depth, roughLayers, waterTable) {
@@ -451,7 +474,7 @@ function calculateMethodResult(name, shape, b, l, df, gamma, surcharge, phiDeg, 
   }
 }
 
-function buildReportText(cfg, summary, layers, bearingCapacity) {
+function buildReportText(cfg, summary, layers, bearingCapacity, foundationLayer) {
   const lines = [
     'REPORTE PRELIMINAR SPT',
     `Proyecto: ${cfg.project}`,
@@ -480,6 +503,11 @@ function buildReportText(cfg, summary, layers, bearingCapacity) {
   if (bearingCapacity.methods.length) {
     lines.push(`- qadm minima por metodos clasicos: ${bearingCapacity.qadm_min_kpa.toFixed(1)} kPa`)
   }
+  if (foundationLayer) {
+    lines.push(
+      `- Estrato de desplante: ${foundationLayer.idx} | gamma≈${foundationLayer.gamma.toFixed(1)} kN/m3 | nu≈${foundationLayer.nu.toFixed(2)}`
+    )
+  }
 
   lines.push('', '2. Correlaciones empiricas SPT')
 
@@ -489,7 +517,7 @@ function buildReportText(cfg, summary, layers, bearingCapacity) {
     const drText = x.dr_pct !== null ? ` | Dr≈${x.dr_pct.toFixed(0)} %` : ''
 
     lines.push(
-      `- Estrato ${x.idx}: ${x.top.toFixed(2)}-${x.bottom.toFixed(2)} m | ${x.soil} | N=${x.n_raw.toFixed(1)} | N60=${x.n60.toFixed(1)} | N*60=${x.n60_star.toFixed(1)} | (N1,60)*=${x.n160_star.toFixed(1)} | ${x.classification}${drText} | ${mainParam} | gamma≈${x.gamma.toFixed(1)} kN/m3 | rho≈${x.rho_kg_m3.toFixed(0)} kg/m3 | Es≈${x.es_mpa.toFixed(1)} MPa | M≈${x.m_mpa.toFixed(1)} MPa | ks≈${x.ks_mn_m3.toFixed(1)} MN/m3`
+      `- Estrato ${x.idx}: ${x.top.toFixed(2)}-${x.bottom.toFixed(2)} m | ${x.soil} | N=${x.n_raw.toFixed(1)} | N60=${x.n60.toFixed(1)} | N*60=${x.n60_star.toFixed(1)} | (N1,60)*=${x.n160_star.toFixed(1)} | ${x.classification}${drText} | ${mainParam} | gamma≈${x.gamma.toFixed(1)} kN/m3 | nu≈${x.nu.toFixed(2)} | rho≈${x.rho_kg_m3.toFixed(0)} kg/m3 | Es≈${x.es_mpa.toFixed(1)} MPa | M≈${x.m_mpa.toFixed(1)} MPa | ks≈${x.ks_mn_m3.toFixed(1)} MN/m3`
     )
   }
 
@@ -511,7 +539,8 @@ function buildReportText(cfg, summary, layers, bearingCapacity) {
     '4. Observaciones',
     '- Los parametros obtenidos por SPT son correlaciones empiricas preliminares y deben validarse con ensayos de laboratorio, experiencia local y criterio geotecnico.',
     '- Las capacidades portantes por Terzaghi, Meyerhof, Vesic y Hansen se reportan con supuestos simplificados de carga vertical centrada, base horizontal y sin inclinacion.',
-    `- El ks reportado depende del ancho de cimentacion B=${Number(cfg.footing_width_m).toFixed(2)} m y debe calibrarse para el diseno final.`
+    `- El ks reportado depende del ancho de cimentacion B=${Number(cfg.footing_width_m).toFixed(2)} m y debe calibrarse para el diseno final.`,
+    '- El programa estima gamma y nu automaticamente a partir del SPT y adopta como referencia de desplante el estrato donde cae Df.'
   )
 
   return lines.join('\n')
