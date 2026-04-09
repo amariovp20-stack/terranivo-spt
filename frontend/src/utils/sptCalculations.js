@@ -302,6 +302,7 @@ function calculateBearingCapacities(cfg, layers) {
   const ratio = footingShape === 'strip' ? 0 : clamp(footingWidth / footingLength, 0, 1)
 
   const methods = [
+    calculateEmpiricalSPTResult(baseLayer, footingWidth, foundationDepth),
     calculateMethodResult('Terzaghi', footingShape, footingWidth, footingLength, foundationDepth, gamma, surcharge, phiDeg, cohesionKpa, factors, safetyFactor, terzaghiShapeFactors(footingShape, ratio), { dc: 1, dq: 1, dg: 1 }, baseLayer.family === 'clay'),
     calculateMethodResult('Meyerhof', footingShape, footingWidth, footingLength, foundationDepth, gamma, surcharge, phiDeg, cohesionKpa, factors, safetyFactor, meyerhofShapeFactors(footingShape, ratio, phiDeg), meyerhofDepthFactors(footingWidth, foundationDepth, phiDeg), baseLayer.family === 'clay'),
     calculateMethodResult('Vesic', footingShape, footingWidth, footingLength, foundationDepth, gamma, surcharge, phiDeg, cohesionKpa, { ...factors, ngamma: ngammaVesic(phiDeg, factors.nq) }, safetyFactor, hansenVesicShapeFactors(footingShape, ratio, factors, phiDeg), hansenVesicDepthFactors(footingWidth, foundationDepth, phiDeg), baseLayer.family === 'clay'),
@@ -338,6 +339,31 @@ function bearingCapacityFactors(phiDeg) {
     nc,
     nq,
     ngamma: ngammaMeyerhof(phiDeg, nq),
+  }
+}
+
+function calculateEmpiricalSPTResult(baseLayer, b, df) {
+  const nDesign = Math.max(baseLayer.n60, 0)
+  const depthFactor = clamp(1 + 0.33 * (df / b), 1, 1.33)
+  const widthFactor =
+    b <= 1.22 ? 1 : ((3.28 * b + 1) / (3.28 * b)) ** 2
+  const qadmKpa = 11.98 * nDesign * widthFactor * depthFactor
+
+  return {
+    method: 'Empirico SPT (N)',
+    shape: 'empirico',
+    width_m: b,
+    length_m: b,
+    depth_m: df,
+    phi_deg: baseLayer.phi_deg ?? 0,
+    cohesion_kpa: baseLayer.su_kpa ?? 0,
+    surcharge_kpa: 0,
+    nc: 0,
+    nq: 0,
+    ngamma: 0,
+    qult_kpa: qadmKpa,
+    qadm_kpa: qadmKpa,
+    note: `Estimacion empirica basada en N60=${nDesign.toFixed(1)} con correccion por B y Df. Inferida de la correlacion tipo Meyerhof/Bowles para asentamiento admisible.`,
   }
 }
 
@@ -473,7 +499,7 @@ function buildReportText(cfg, summary, layers, bearingCapacity) {
     lines.push(`- ${bearingCapacity.assumptions}`)
     for (const method of bearingCapacity.methods) {
       lines.push(
-        `- ${method.method}: qult≈${method.qult_kpa.toFixed(1)} kPa | qadm≈${method.qadm_kpa.toFixed(1)} kPa | Nc=${method.nc.toFixed(2)} | Nq=${method.nq.toFixed(2)} | Ngamma=${method.ngamma.toFixed(2)}`
+        `- ${method.method}: qult≈${method.qult_kpa.toFixed(1)} kPa | qadm≈${method.qadm_kpa.toFixed(1)} kPa | Nc=${method.nc.toFixed(2)} | Nq=${method.nq.toFixed(2)} | Ngamma=${method.ngamma.toFixed(2)}${method.note ? ` | ${method.note}` : ''}`
       )
     }
   } else {

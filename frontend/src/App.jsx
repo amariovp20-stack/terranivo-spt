@@ -3,10 +3,10 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import LayerForm from './components/LayerForm'
 import StratigraphyChart from './components/StratigraphyChart'
+import { ACCESS_EMAILS } from './config/allowedEmails'
 import { calculateSPT } from './utils/sptCalculations'
 
 const STORAGE_KEY = 'terranivo_spt_projects'
-const ACCESS_EMAILS = ['amariovp20@gmail.com', 'geoservi.lab@gmail.com']
 
 const layerTemplate = (idx, top = 0, bottom = 1.5, family = 'sand', soil = 'SM', n_raw = 8) => ({
   idx,
