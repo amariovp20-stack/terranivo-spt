@@ -9,7 +9,7 @@ const SERIES = [
   { key: 'n160_star', label: '(N1,60)*', color: '#d97706', dash: '3 3' },
 ]
 
-export default function StratigraphyChart({ layers = [] }) {
+export default function StratigraphyChart({ layers = [], chartId = 'spt-chart-svg' }) {
   if (!layers.length) return <div className="emptyBox">Sin datos para el grafico.</div>
 
   const normalizedLayers = layers.map((layer) => ({
@@ -41,7 +41,7 @@ export default function StratigraphyChart({ layers = [] }) {
   return (
     <div className="chartCard">
       <div className="chartTitle">Grafico estratigrafico y correlacion N vs profundidad</div>
-      <svg width="100%" viewBox={`0 0 ${chartWidth} ${chartHeight}`}>
+      <svg id={chartId} width="100%" viewBox={`0 0 ${chartWidth} ${chartHeight}`}>
         {[...Array(Math.ceil(totalDepth) + 1)].map((_, i) => {
           const y = depthToY(i)
           return (

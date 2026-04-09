@@ -42,6 +42,7 @@ const initialLayers = [
 ]
 
 const LOGO_PATH = '/terranivo-logo.jpeg'
+const CHART_SVG_ID = 'spt-chart-svg'
 
 export default function App() {
   const [accessEmail, setAccessEmail] = useState('')
@@ -261,6 +262,7 @@ export default function App() {
         format: 'a4',
       })
       const logoDataUrl = await loadImageAsDataUrl(LOGO_PATH)
+      const chartDataUrl = await loadSvgAsDataUrl(CHART_SVG_ID)
       const reportDate = new Date().toLocaleDateString()
 
       addPdfHeader(doc, logoDataUrl, payload, reportDate)
@@ -438,7 +440,7 @@ export default function App() {
 
       autoTable(doc, {
         startY: y + 4,
-        head: [['Estrato', 'Tipo', 'N60', '(N1,60)*', 'Gamma', 'Rho', 'Dr', "phi'/Su", 'Es', 'ks']],
+        head: [['Estrato', 'Tipo', 'N60', '(N1,60)*', 'Gamma', 'Rho', 'Dr', "phi'/Su", 'Es', 'ks', 'Descripcion', 'Observaciones']],
         body: computed.layers.map((x) => [
           `E-${x.idx}`,
           x.soil,
@@ -450,6 +452,8 @@ export default function App() {
           x.phi_deg !== null ? `${x.phi_deg.toFixed(1)} grados` : `${x.su_kpa.toFixed(1)} kPa`,
           `${x.es_mpa.toFixed(1)} MPa`,
           `${x.ks_mn_m3.toFixed(1)} MN/m3`,
+          x.description || '-',
+          x.observations || '-',
         ]),
         theme: 'grid',
         styles: {
@@ -470,12 +474,33 @@ export default function App() {
         alternateRowStyles: {
           fillColor: [247, 250, 252],
         },
+        columnStyles: {
+          10: { cellWidth: 34, halign: 'left' },
+          11: { cellWidth: 40, halign: 'left' },
+        },
         margin: { top: 40, right: 14, bottom: 16, left: 14 },
         didDrawPage: () => {
           addPdfHeader(doc, logoDataUrl, payload, reportDate)
           addPdfFooter(doc)
         },
       })
+
+      doc.addPage()
+      addPdfHeader(doc, logoDataUrl, payload, reportDate)
+      addPdfFooter(doc)
+      y = 52
+
+      y = addPdfSectionTitle(doc, 'Etapa 3 - Graficos', y)
+      y = addParagraph(doc, 'Visualizacion del perfil estratigrafico y de la correlacion entre profundidad, N, N60 y (N1,60)*.', 14, y, 260, bottomLimit, () => {
+        doc.addPage()
+        addPdfHeader(doc, logoDataUrl, payload, reportDate)
+        addPdfFooter(doc)
+        return 52
+      })
+
+      if (chartDataUrl) {
+        doc.addImage(chartDataUrl, 'PNG', 18, y + 4, 235, 150)
+      }
 
       doc.addPage()
       addPdfHeader(doc, logoDataUrl, payload, reportDate)
@@ -795,6 +820,7 @@ export default function App() {
               <h2>Graficos</h2>
               <p className="sectionLead">Visualiza el perfil estratigrafico y la evolucion de los golpes.</p>
               <StratigraphyChart
+                chartId={CHART_SVG_ID}
                 layers={
                   result?.layers ||
                   layers.map((x) => ({
@@ -1130,6 +1156,48 @@ function loadImageAsDataUrl(src) {
     }
     image.onerror = () => reject(new Error('No se pudo cargar el logo para el PDF.'))
     image.src = src
+  })
+}
+
+function loadSvgAsDataUrl(elementId) {
+  return new Promise((resolve) => {
+    const svg = document.getElementById(elementId)
+    if (!svg) {
+      resolve(null)
+      return
+    }
+
+    const serializer = new XMLSerializer()
+    const source = serializer.serializeToString(svg)
+    const svgBlob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' })
+    const url = URL.createObjectURL(svgBlob)
+    const image = new Image()
+
+    image.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 1520
+      canvas.height = 1080
+      const ctx = canvas.getContext('2d')
+
+      if (!ctx) {
+        URL.revokeObjectURL(url)
+        resolve(null)
+        return
+      }
+
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
+      URL.revokeObjectURL(url)
+      resolve(canvas.toDataURL('image/png'))
+    }
+
+    image.onerror = () => {
+      URL.revokeObjectURL(url)
+      resolve(null)
+    }
+
+    image.src = url
   })
 }
 
