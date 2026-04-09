@@ -467,10 +467,6 @@ export default function App() {
             {authUnavailable && <div className="alert">{authUnavailable}</div>}
             {loginError && <div className="alert">{loginError}</div>}
 
-            <div className="allowedBox">
-              <strong>Correos habilitados actualmente</strong>
-              <small>{ACCESS_EMAILS.join(' | ')}</small>
-            </div>
           </section>
         </section>
       </div>
@@ -907,7 +903,7 @@ function setupFirebaseAuth() {
     return {
       ok: false,
       message:
-        'Faltan variables VITE_FIREBASE_* en el entorno. Configuralas en local y en Vercel.',
+        'La autenticacion aun no esta configurada. Agrega las variables VITE_FIREBASE_* en local y en Vercel.',
     }
   }
 
@@ -940,6 +936,21 @@ function mapAuthError(error) {
   }
   if (code === 'auth/cancelled-popup-request') {
     return 'Ya existe una ventana de acceso abierta. Completa esa ventana primero.'
+  }
+  if (code === 'auth/unauthorized-domain') {
+    return 'Este dominio no esta autorizado en Firebase. Agrega tu dominio de Vercel en Authentication > Settings > Authorized domains.'
+  }
+  if (code === 'auth/operation-not-allowed') {
+    return 'Google aun no esta habilitado en Firebase Authentication para este proyecto.'
+  }
+  if (code === 'auth/invalid-api-key') {
+    return 'La API key de Firebase no es valida. Revisa las variables VITE_FIREBASE_* en Vercel.'
+  }
+  if (code === 'auth/network-request-failed') {
+    return 'Fallo la conexion con Firebase. Revisa internet o intenta nuevamente.'
+  }
+  if (code) {
+    return `No se pudo iniciar sesion con Google. Codigo: ${code}`
   }
   return 'No se pudo iniciar sesion con Google.'
 }
