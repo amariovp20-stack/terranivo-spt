@@ -49,13 +49,16 @@ export function calculateSPT(payload) {
   const suValues = []
   const esValues = []
   const ksValues = []
+  const gammaValues = []
+  const rhoValues = []
+  const drValues = []
 
   for (const layer of roughLayers) {
     const sigmaVeff = effectiveStressAt(layer.mid, roughLayers, cfg.water_table)
     const cn = getCN(sigmaVeff, layer.family)
     const n160Star = layer.n60Star * cn
 
-    let gamma =
+    const gamma =
       layer.gammaManual !== null
         ? layer.gammaManual
         : gammaPreset(layer.family, layer.soil, n160Star, cfg)
@@ -67,11 +70,16 @@ export function calculateSPT(payload) {
     const mMpa = constrainedModulus(esMpa, nu)
     const ksMnM3 = mMpa / Number(cfg.footing_width_m)
     const classification = densityClass(layer.family, n160Star)
+    const relativeDensityPct = layer.family === 'sand' ? relativeDensityFromSPT(n160Star) : null
+    const rhoKgM3 = massDensityFromUnitWeight(gamma)
 
     if (phiDeg !== null) phiValues.push(phiDeg)
     if (suKpa !== null) suValues.push(suKpa)
+    if (relativeDensityPct !== null) drValues.push(relativeDensityPct)
     esValues.push(esMpa)
     ksValues.push(ksMnM3)
+    gammaValues.push(gamma)
+    rhoValues.push(rhoKgM3)
 
     layersOut.push({
       idx: layer.idx,
@@ -90,6 +98,8 @@ export function calculateSPT(payload) {
       n60_star: layer.n60Star,
       n160_star: n160Star,
       gamma,
+      rho_kg_m3: rhoKgM3,
+      dr_pct: relativeDensityPct,
       phi_deg: phiDeg,
       su_kpa: suKpa,
       es_mpa: esMpa,
@@ -102,6 +112,7 @@ export function calculateSPT(payload) {
   }
 
   const totalDepth = Math.max(...layersOut.map((x) => x.bottom), 0)
+  const bearingCapacity = calculateBearingCapacities(cfg, layersOut)
 
   const summary = {
     layer_count: layersOut.length,
@@ -110,15 +121,20 @@ export function calculateSPT(payload) {
     n160_avg: average(layersOut.map((x) => x.n160_star)),
     phi_avg_deg: phiValues.length ? average(phiValues) : null,
     su_avg_kpa: suValues.length ? average(suValues) : null,
+    dr_avg_pct: drValues.length ? average(drValues) : null,
+    gamma_avg_kn_m3: average(gammaValues),
+    rho_avg_kg_m3: average(rhoValues),
     es_avg_mpa: average(esValues),
     ks_avg_mn_m3: average(ksValues),
+    qadm_min_kpa: bearingCapacity.qadm_min_kpa,
   }
 
-  const reportText = buildReportText(cfg, summary, layersOut)
+  const reportText = buildReportText(cfg, summary, layersOut, bearingCapacity)
 
   return {
     summary,
     layers: layersOut,
+    bearing_capacity: bearingCapacity,
     report_text: reportText,
   }
 }
@@ -251,45 +267,225 @@ function densityClass(family, n160) {
   return 'Duro'
 }
 
-function buildReportText(cfg, summary, layers) {
+function relativeDensityFromSPT(n160) {
+  return clamp(15 * Math.sqrt(Math.max(n160, 0)), 10, 100)
+}
+
+function massDensityFromUnitWeight(gammaKnM3) {
+  return (gammaKnM3 * 1000) / 9.81
+}
+
+function calculateBearingCapacities(cfg, layers) {
+  const footingWidth = Math.max(Number(cfg.footing_width_m) || 1.5, 0.2)
+  const footingLengthRaw = Number(cfg.footing_length_m) || footingWidth
+  const footingLength = Math.max(footingLengthRaw, footingWidth)
+  const foundationDepth = Math.max(Number(cfg.foundation_depth_m) || 1.5, 0)
+  const safetyFactor = Math.max(Number(cfg.safety_factor) || 3, 1)
+  const footingShape = cfg.footing_shape || inferFootingShape(footingWidth, footingLength)
+  const baseLayer = getLayerAtDepth(layers, foundationDepth)
+
+  if (!baseLayer) {
+    return {
+      methods: [],
+      qadm_min_kpa: 0,
+      selected_layer_idx: null,
+      assumptions:
+        'No se pudo determinar el estrato de apoyo para la profundidad de desplante especificada.',
+    }
+  }
+
+  const phiDeg = baseLayer.phi_deg ?? 0
+  const cohesionKpa = baseLayer.family === 'clay' ? baseLayer.su_kpa ?? 0 : 0
+  const gamma = baseLayer.gamma
+  const surcharge = gamma * foundationDepth
+  const factors = bearingCapacityFactors(phiDeg)
+  const ratio = footingShape === 'strip' ? 0 : clamp(footingWidth / footingLength, 0, 1)
+
+  const methods = [
+    calculateMethodResult('Terzaghi', footingShape, footingWidth, footingLength, foundationDepth, gamma, surcharge, phiDeg, cohesionKpa, factors, safetyFactor, terzaghiShapeFactors(footingShape, ratio), { dc: 1, dq: 1, dg: 1 }, baseLayer.family === 'clay'),
+    calculateMethodResult('Meyerhof', footingShape, footingWidth, footingLength, foundationDepth, gamma, surcharge, phiDeg, cohesionKpa, factors, safetyFactor, meyerhofShapeFactors(footingShape, ratio, phiDeg), meyerhofDepthFactors(footingWidth, foundationDepth, phiDeg), baseLayer.family === 'clay'),
+    calculateMethodResult('Vesic', footingShape, footingWidth, footingLength, foundationDepth, gamma, surcharge, phiDeg, cohesionKpa, { ...factors, ngamma: ngammaVesic(phiDeg, factors.nq) }, safetyFactor, hansenVesicShapeFactors(footingShape, ratio, factors, phiDeg), hansenVesicDepthFactors(footingWidth, foundationDepth, phiDeg), baseLayer.family === 'clay'),
+    calculateMethodResult('Hansen', footingShape, footingWidth, footingLength, foundationDepth, gamma, surcharge, phiDeg, cohesionKpa, { ...factors, ngamma: ngammaHansen(phiDeg, factors.nq) }, safetyFactor, hansenVesicShapeFactors(footingShape, ratio, factors, phiDeg), hansenVesicDepthFactors(footingWidth, foundationDepth, phiDeg), baseLayer.family === 'clay'),
+  ]
+
+  return {
+    methods,
+    qadm_min_kpa: Math.min(...methods.map((x) => x.qadm_kpa)),
+    selected_layer_idx: baseLayer.idx,
+    assumptions: `Capacidad portante estimada en el estrato ${baseLayer.idx} a Df=${foundationDepth.toFixed(2)} m con B=${footingWidth.toFixed(2)} m, L=${footingLength.toFixed(2)} m, forma ${footingShape} y FS=${safetyFactor.toFixed(2)}. Se asumen carga vertical centrada, terreno horizontal y factores de inclinacion igual a 1.`,
+  }
+}
+
+function inferFootingShape(b, l) {
+  if (l / b >= 5) return 'strip'
+  if (Math.abs(l - b) / b < 0.1) return 'square'
+  return 'rectangular'
+}
+
+function getLayerAtDepth(layers, depth) {
+  return layers.find((layer) => depth >= layer.top && depth <= layer.bottom) || layers[layers.length - 1] || null
+}
+
+function bearingCapacityFactors(phiDeg) {
+  if (phiDeg <= 1e-6) {
+    return { nc: 5.14, nq: 1.0, ngamma: 0.0 }
+  }
+
+  const phi = toRad(phiDeg)
+  const nq = Math.exp(Math.PI * Math.tan(phi)) * Math.tan(Math.PI / 4 + phi / 2) ** 2
+  const nc = (nq - 1) / Math.tan(phi)
+  return {
+    nc,
+    nq,
+    ngamma: ngammaMeyerhof(phiDeg, nq),
+  }
+}
+
+function terzaghiShapeFactors(shape, ratio) {
+  if (shape === 'square') return { sc: 1.3, sq: 1.2, sg: 0.8 }
+  if (shape === 'rectangular') return { sc: 1 + 0.3 * ratio, sq: 1 + 0.2 * ratio, sg: 1 - 0.2 * ratio }
+  return { sc: 1, sq: 1, sg: 1 }
+}
+
+function meyerhofShapeFactors(shape, ratio, phiDeg) {
+  if (shape === 'strip') return { sc: 1, sq: 1, sg: 1 }
+  const tanSq = phiDeg <= 1e-6 ? 1 : Math.tan(Math.PI / 4 + toRad(phiDeg) / 2) ** 2
+  return {
+    sc: 1 + 0.2 * ratio * tanSq,
+    sq: 1 + 0.1 * ratio * tanSq,
+    sg: Math.max(0.6, 1 - 0.4 * ratio),
+  }
+}
+
+function hansenVesicShapeFactors(shape, ratio, factors, phiDeg) {
+  if (shape === 'strip') return { sc: 1, sq: 1, sg: 1 }
+  const ncSafe = Math.max(factors.nc, 0.1)
+  return {
+    sc: 1 + (factors.nq / ncSafe) * ratio,
+    sq: 1 + ratio * Math.sin(toRad(phiDeg)),
+    sg: Math.max(0.6, 1 - 0.4 * ratio),
+  }
+}
+
+function meyerhofDepthFactors(b, df, phiDeg) {
+  if (phiDeg <= 1e-6) return { dc: 1 + 0.2 * (df / b), dq: 1, dg: 1 }
+  const phi = toRad(phiDeg)
+  const tanSq = Math.tan(Math.PI / 4 + phi / 2) ** 2
+  return {
+    dc: 1 + 0.2 * (df / b) * tanSq,
+    dq: 1 + 0.1 * (df / b) * tanSq,
+    dg: 1,
+  }
+}
+
+function hansenVesicDepthFactors(b, df, phiDeg) {
+  if (phiDeg <= 1e-6) return { dc: 1 + 0.4 * (df / b), dq: 1, dg: 1 }
+  return {
+    dc: 1 + 0.35 * (df / b),
+    dq: 1 + 2 * Math.tan(toRad(phiDeg)) * (1 - Math.sin(toRad(phiDeg))) ** 2 * (df / b),
+    dg: 1,
+  }
+}
+
+function ngammaMeyerhof(phiDeg, nq) {
+  if (phiDeg <= 1e-6) return 0
+  return (nq - 1) * Math.tan(toRad(1.4 * phiDeg))
+}
+
+function ngammaVesic(phiDeg, nq) {
+  if (phiDeg <= 1e-6) return 0
+  return 2 * (nq + 1) * Math.tan(toRad(phiDeg))
+}
+
+function ngammaHansen(phiDeg, nq) {
+  if (phiDeg <= 1e-6) return 0
+  return 1.5 * (nq - 1) * Math.tan(toRad(phiDeg))
+}
+
+function calculateMethodResult(name, shape, b, l, df, gamma, surcharge, phiDeg, cohesionKpa, factors, safetyFactor, shapeFactors, depthFactors, isClay) {
+  const cohesionTerm = cohesionKpa * factors.nc * shapeFactors.sc * depthFactors.dc
+  const surchargeTerm = surcharge * factors.nq * shapeFactors.sq * depthFactors.dq
+  const gammaTerm = isClay ? 0 : 0.5 * gamma * b * factors.ngamma * shapeFactors.sg * depthFactors.dg
+  const qultKpa = cohesionTerm + surchargeTerm + gammaTerm
+
+  return {
+    method: name,
+    shape,
+    width_m: b,
+    length_m: l,
+    depth_m: df,
+    phi_deg: phiDeg,
+    cohesion_kpa: cohesionKpa,
+    surcharge_kpa: surcharge,
+    nc: factors.nc,
+    nq: factors.nq,
+    ngamma: factors.ngamma,
+    qult_kpa: qultKpa,
+    qadm_kpa: qultKpa / safetyFactor,
+  }
+}
+
+function buildReportText(cfg, summary, layers, bearingCapacity) {
   const lines = [
     'REPORTE PRELIMINAR SPT',
     `Proyecto: ${cfg.project}`,
     `Sondeo: ${cfg.borehole}`,
     '',
     '1. Resumen',
-    `- Número de estratos: ${summary.layer_count}`,
+    `- Numero de estratos: ${summary.layer_count}`,
     `- Profundidad total evaluada: ${summary.total_depth_m.toFixed(2)} m`,
     `- N60 promedio: ${summary.n60_avg.toFixed(1)}`,
     `- (N1,60)* promedio: ${summary.n160_avg.toFixed(1)}`,
+    `- Gamma promedio estimado: ${summary.gamma_avg_kn_m3.toFixed(1)} kN/m3`,
+    `- Densidad masica promedio estimada: ${summary.rho_avg_kg_m3.toFixed(0)} kg/m3`,
     `- Es promedio: ${summary.es_avg_mpa.toFixed(1)} MPa`,
-    `- ks promedio preliminar: ${summary.ks_avg_mn_m3.toFixed(1)} MN/m³`,
+    `- ks promedio preliminar: ${summary.ks_avg_mn_m3.toFixed(1)} MN/m3`,
   ]
 
+  if (summary.dr_avg_pct !== null) {
+    lines.push(`- Densidad relativa media en granulares: ${summary.dr_avg_pct.toFixed(0)} %`)
+  }
   if (summary.phi_avg_deg !== null) {
-    lines.push(`- φ' promedio en suelos granulares: ${summary.phi_avg_deg.toFixed(1)}°`)
+    lines.push(`- phi' promedio en suelos granulares: ${summary.phi_avg_deg.toFixed(1)} grados`)
   }
   if (summary.su_avg_kpa !== null) {
     lines.push(`- Su promedio en suelos cohesivos: ${summary.su_avg_kpa.toFixed(1)} kPa`)
   }
+  if (bearingCapacity.methods.length) {
+    lines.push(`- qadm minima por metodos clasicos: ${bearingCapacity.qadm_min_kpa.toFixed(1)} kPa`)
+  }
 
-  lines.push('', '2. Estratificación y parámetros estimados')
+  lines.push('', '2. Correlaciones empiricas SPT')
 
   for (const x of layers) {
     const mainParam =
-      x.phi_deg !== null ? `φ'≈${x.phi_deg.toFixed(1)}°` : `Su≈${x.su_kpa.toFixed(1)} kPa`
+      x.phi_deg !== null ? `phi'≈${x.phi_deg.toFixed(1)} grados` : `Su≈${x.su_kpa.toFixed(1)} kPa`
+    const drText = x.dr_pct !== null ? ` | Dr≈${x.dr_pct.toFixed(0)} %` : ''
 
     lines.push(
-      `- Estrato ${x.idx}: ${x.top.toFixed(2)}-${x.bottom.toFixed(2)} m | ${x.soil} | N=${x.n_raw.toFixed(1)} | N60=${x.n60.toFixed(1)} | N*60=${x.n60_star.toFixed(1)} | (N1,60)*=${x.n160_star.toFixed(1)} | ${x.classification} | ${mainParam} | γ≈${x.gamma.toFixed(1)} kN/m³ | Es≈${x.es_mpa.toFixed(1)} MPa | M≈${x.m_mpa.toFixed(1)} MPa | ks≈${x.ks_mn_m3.toFixed(1)} MN/m³`
+      `- Estrato ${x.idx}: ${x.top.toFixed(2)}-${x.bottom.toFixed(2)} m | ${x.soil} | N=${x.n_raw.toFixed(1)} | N60=${x.n60.toFixed(1)} | N*60=${x.n60_star.toFixed(1)} | (N1,60)*=${x.n160_star.toFixed(1)} | ${x.classification}${drText} | ${mainParam} | gamma≈${x.gamma.toFixed(1)} kN/m3 | rho≈${x.rho_kg_m3.toFixed(0)} kg/m3 | Es≈${x.es_mpa.toFixed(1)} MPa | M≈${x.m_mpa.toFixed(1)} MPa | ks≈${x.ks_mn_m3.toFixed(1)} MN/m3`
     )
+  }
+
+  lines.push('', '3. Capacidad portante estimada')
+
+  if (bearingCapacity.methods.length) {
+    lines.push(`- ${bearingCapacity.assumptions}`)
+    for (const method of bearingCapacity.methods) {
+      lines.push(
+        `- ${method.method}: qult≈${method.qult_kpa.toFixed(1)} kPa | qadm≈${method.qadm_kpa.toFixed(1)} kPa | Nc=${method.nc.toFixed(2)} | Nq=${method.nq.toFixed(2)} | Ngamma=${method.ngamma.toFixed(2)}`
+      )
+    }
+  } else {
+    lines.push(`- ${bearingCapacity.assumptions}`)
   }
 
   lines.push(
     '',
-    '3. Observaciones',
-    '- Los parámetros generados son preliminares y deben ser validados con laboratorio, correlaciones locales y criterio geotécnico.',
-    '- En arcillas se reporta Su preliminar; la cohesión efectiva c\' no debe adoptarse directamente solo con SPT.',
-    `- El ks reportado depende del ancho de cimentación B=${Number(cfg.footing_width_m).toFixed(2)} m y debe calibrarse para diseño final.`
+    '4. Observaciones',
+    '- Los parametros obtenidos por SPT son correlaciones empiricas preliminares y deben validarse con ensayos de laboratorio, experiencia local y criterio geotecnico.',
+    '- Las capacidades portantes por Terzaghi, Meyerhof, Vesic y Hansen se reportan con supuestos simplificados de carga vertical centrada, base horizontal y sin inclinacion.',
+    `- El ks reportado depende del ancho de cimentacion B=${Number(cfg.footing_width_m).toFixed(2)} m y debe calibrarse para el diseno final.`
   )
 
   return lines.join('\n')
@@ -297,4 +493,8 @@ function buildReportText(cfg, summary, layers) {
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value))
+}
+
+function toRad(degrees) {
+  return (degrees * Math.PI) / 180
 }

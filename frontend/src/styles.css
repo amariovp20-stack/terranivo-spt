@@ -235,6 +235,10 @@ th { background: #f7faf5; position: sticky; top: 0; }
   text-align: right;
   font-weight: 700;
 }
+.compactNote {
+  padding: 14px;
+  font-size: 13px;
+}
 .chartCard { background: #fcfdf9; border: 1px solid #e3e9df; border-radius: 14px; padding: 12px; }
 .chartTitle { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
 .emptyBox { border: 1px dashed #cad7cf; border-radius: 14px; padding: 18px; color: var(--muted); background: #fcfdf9; }

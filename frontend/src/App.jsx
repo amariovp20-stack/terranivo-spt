@@ -28,6 +28,10 @@ const initialConfig = {
   borehole: 'BH-01',
   water_table: '',
   footing_width_m: 1.5,
+  footing_length_m: 3.0,
+  foundation_depth_m: 1.5,
+  footing_shape: 'rectangular',
+  safety_factor: 3.0,
   energy_ratio_percent: 60,
   nu_sand: 0.3,
   nu_clay: 0.35,
@@ -62,6 +66,9 @@ export default function App() {
         ...config,
         water_table: config.water_table === '' ? null : Number(config.water_table),
         footing_width_m: Number(config.footing_width_m),
+        footing_length_m: Number(config.footing_length_m),
+        foundation_depth_m: Number(config.foundation_depth_m),
+        safety_factor: Number(config.safety_factor),
         energy_ratio_percent: Number(config.energy_ratio_percent),
         nu_sand: Number(config.nu_sand),
         nu_clay: Number(config.nu_clay),
@@ -274,8 +281,11 @@ export default function App() {
           ['Profundidad total', `${computed.summary.total_depth_m.toFixed(2)} m`],
           ['N60 promedio', computed.summary.n60_avg.toFixed(1)],
           ['(N1,60)* promedio', computed.summary.n160_avg.toFixed(1)],
+          ['Gamma promedio', `${computed.summary.gamma_avg_kn_m3.toFixed(1)} kN/m3`],
+          ['Densidad promedio', `${computed.summary.rho_avg_kg_m3.toFixed(0)} kg/m3`],
           ['Es promedio', `${computed.summary.es_avg_mpa.toFixed(1)} MPa`],
           ['ks promedio', `${computed.summary.ks_avg_mn_m3.toFixed(1)} MN/m3`],
+          ['qadm minima', `${computed.summary.qadm_min_kpa.toFixed(1)} kPa`],
           [
             "phi' promedio",
             computed.summary.phi_avg_deg !== null
@@ -287,6 +297,10 @@ export default function App() {
             computed.summary.su_avg_kpa !== null
               ? `${computed.summary.su_avg_kpa.toFixed(1)} kPa`
               : '-',
+          ],
+          [
+            'Dr promedio',
+            computed.summary.dr_avg_pct !== null ? `${computed.summary.dr_avg_pct.toFixed(0)} %` : '-',
           ],
         ],
         theme: 'grid',
@@ -308,8 +322,8 @@ export default function App() {
           fillColor: [247, 250, 252],
         },
         columnStyles: {
-          0: { cellWidth: 62, fontStyle: 'bold' },
-          1: { cellWidth: 58 },
+          0: { cellWidth: 70, fontStyle: 'bold' },
+          1: { cellWidth: 62 },
         },
         margin: { top: 40, right: 14, bottom: 16, left: 14 },
         didDrawPage: () => {
@@ -320,15 +334,17 @@ export default function App() {
 
       autoTable(doc, {
         startY: doc.lastAutoTable.finalY + 10,
-        head: [['#', 'Prof. (m)', 'Suelo', 'N campo', 'N60', 'N60*', '(N1,60)*', "phi'/Su", 'Es', 'ks', 'Clasificacion']],
+        head: [['#', 'Prof. (m)', 'Suelo', 'N campo', 'N60', '(N1,60)*', 'Gamma', 'Rho', 'Dr', "phi'/Su", 'Es', 'ks', 'Clasificacion']],
         body: computed.layers.map((x) => [
           String(x.idx),
           `${x.top.toFixed(2)}-${x.bottom.toFixed(2)}`,
           x.soil,
           x.n_raw.toFixed(1),
           x.n60.toFixed(1),
-          x.n60_star.toFixed(1),
           x.n160_star.toFixed(1),
+          x.gamma.toFixed(1),
+          x.rho_kg_m3.toFixed(0),
+          x.dr_pct !== null ? `${x.dr_pct.toFixed(0)} %` : '-',
           x.phi_deg !== null ? `${x.phi_deg.toFixed(1)} grados` : `${x.su_kpa.toFixed(1)} kPa`,
           `${x.es_mpa.toFixed(1)} MPa`,
           `${x.ks_mn_m3.toFixed(1)} MN/m3`,
@@ -362,12 +378,48 @@ export default function App() {
           2: { cellWidth: 16 },
           3: { cellWidth: 18 },
           4: { cellWidth: 16 },
-          5: { cellWidth: 18 },
-          6: { cellWidth: 20 },
-          7: { cellWidth: 32, halign: 'left' },
-          8: { cellWidth: 18 },
-          9: { cellWidth: 20 },
-          10: { cellWidth: 34, halign: 'left' },
+          5: { cellWidth: 20 },
+          6: { cellWidth: 16 },
+          7: { cellWidth: 18 },
+          8: { cellWidth: 16 },
+          9: { cellWidth: 30, halign: 'left' },
+          10: { cellWidth: 18 },
+          11: { cellWidth: 18 },
+          12: { cellWidth: 30, halign: 'left' },
+        },
+        margin: { top: 40, right: 14, bottom: 16, left: 14 },
+        didDrawPage: () => {
+          addPdfHeader(doc, logoDataUrl, payload, reportDate)
+          addPdfFooter(doc)
+        },
+      })
+
+      autoTable(doc, {
+        startY: doc.lastAutoTable.finalY + 10,
+        head: [['Metodo', 'qult (kPa)', 'qadm (kPa)', 'Nc', 'Nq', 'Ngamma']],
+        body: computed.bearing_capacity.methods.map((method) => [
+          method.method,
+          method.qult_kpa.toFixed(1),
+          method.qadm_kpa.toFixed(1),
+          method.nc.toFixed(2),
+          method.nq.toFixed(2),
+          method.ngamma.toFixed(2),
+        ]),
+        theme: 'grid',
+        styles: {
+          fontSize: 9,
+          cellPadding: 2.5,
+          lineColor: [210, 217, 226],
+          lineWidth: 0.2,
+          textColor: [31, 41, 55],
+        },
+        headStyles: {
+          fillColor: [139, 94, 52],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+        },
+        alternateRowStyles: {
+          fillColor: [251, 248, 242],
         },
         margin: { top: 40, right: 14, bottom: 16, left: 14 },
         didDrawPage: () => {
@@ -513,10 +565,10 @@ export default function App() {
             </Field>
           </div>
 
-          <div className="grid2">
-            <Field label="Nivel freatico (m)">
-              <input
-                type="number"
+        <div className="grid2">
+          <Field label="Nivel freatico (m)">
+            <input
+              type="number"
                 step="0.01"
                 value={config.water_table}
                 onChange={(e) => setConfig({ ...config, water_table: e.target.value })}
@@ -530,12 +582,54 @@ export default function App() {
                 value={config.footing_width_m}
                 onChange={(e) => setConfig({ ...config, footing_width_m: e.target.value })}
               />
-            </Field>
-          </div>
+          </Field>
+        </div>
 
-          <div className="grid2">
-            <Field label="ER (%)">
-              <input
+        <div className="grid2">
+          <Field label="Prof. desplante Df (m)">
+            <input
+              type="number"
+              step="0.01"
+              value={config.foundation_depth_m}
+              onChange={(e) => setConfig({ ...config, foundation_depth_m: e.target.value })}
+            />
+          </Field>
+
+          <Field label="Longitud L (m)">
+            <input
+              type="number"
+              step="0.01"
+              value={config.footing_length_m}
+              onChange={(e) => setConfig({ ...config, footing_length_m: e.target.value })}
+            />
+          </Field>
+        </div>
+
+        <div className="grid2">
+          <Field label="Forma de cimentacion">
+            <select
+              value={config.footing_shape}
+              onChange={(e) => setConfig({ ...config, footing_shape: e.target.value })}
+            >
+              <option value="strip">Corrida</option>
+              <option value="rectangular">Rectangular</option>
+              <option value="square">Cuadrada</option>
+            </select>
+          </Field>
+
+          <Field label="Factor de seguridad">
+            <input
+              type="number"
+              step="0.1"
+              value={config.safety_factor}
+              onChange={(e) => setConfig({ ...config, safety_factor: e.target.value })}
+            />
+          </Field>
+        </div>
+
+        <div className="grid2">
+          <Field label="ER (%)">
+            <input
                 type="number"
                 step="0.1"
                 value={config.energy_ratio_percent}
@@ -685,12 +779,32 @@ export default function App() {
                     value={result.summary.n160_avg.toFixed(1)}
                   />
                   <Metric
+                    label="Gamma promedio"
+                    value={`${result.summary.gamma_avg_kn_m3.toFixed(1)} kN/m3`}
+                  />
+                  <Metric
+                    label="Densidad promedio"
+                    value={`${result.summary.rho_avg_kg_m3.toFixed(0)} kg/m3`}
+                  />
+                  <Metric
                     label="Es promedio"
                     value={`${result.summary.es_avg_mpa.toFixed(1)} MPa`}
                   />
                   <Metric
                     label="ks promedio"
                     value={`${result.summary.ks_avg_mn_m3.toFixed(1)} MN/m3`}
+                  />
+                  <Metric
+                    label="qadm minima"
+                    value={`${result.summary.qadm_min_kpa.toFixed(1)} kPa`}
+                  />
+                  <Metric
+                    label="Dr promedio"
+                    value={
+                      result.summary.dr_avg_pct !== null
+                        ? `${result.summary.dr_avg_pct.toFixed(0)} %`
+                        : '-'
+                    }
                   />
                 </div>
               ) : (
@@ -703,6 +817,16 @@ export default function App() {
             <div className="stageTag">Etapa 3</div>
             <h2>Tabla de resultados</h2>
             {result ? <ResultsTable rows={result.layers} /> : <div className="emptyBox">Sin resultados aun.</div>}
+          </section>
+
+          <section className="panel panelResults">
+            <div className="stageTag">Etapa 3</div>
+            <h2>Capacidad portante</h2>
+            {result ? (
+              <BearingCapacityTable bearingCapacity={result.bearing_capacity} />
+            ) : (
+              <div className="emptyBox">Calcula para ver Terzaghi, Meyerhof, Vesic y Hansen.</div>
+            )}
           </section>
 
           <section className="panel panelReport">
@@ -787,6 +911,8 @@ function ResultsTable({ rows }) {
             <th>N*60</th>
             <th>(N1,60)*</th>
             <th>Gamma</th>
+            <th>Rho</th>
+            <th>Dr</th>
             <th>Phi / Su</th>
             <th>Es</th>
             <th>M</th>
@@ -807,6 +933,8 @@ function ResultsTable({ rows }) {
               <td>{row.n60_star.toFixed(1)}</td>
               <td>{row.n160_star.toFixed(1)}</td>
               <td>{row.gamma.toFixed(1)}</td>
+              <td>{row.rho_kg_m3.toFixed(0)}</td>
+              <td>{row.dr_pct !== null ? `${row.dr_pct.toFixed(0)} %` : '-'}</td>
               <td>
                 {row.phi_deg !== null ? `${row.phi_deg.toFixed(1)} grados` : `${row.su_kpa.toFixed(1)} kPa`}
               </td>
@@ -818,6 +946,40 @@ function ResultsTable({ rows }) {
           ))}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+function BearingCapacityTable({ bearingCapacity }) {
+  return (
+    <div className="stack" style={{ gap: '12px' }}>
+      <div className="emptyBox compactNote">{bearingCapacity.assumptions}</div>
+      <div className="tableWrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Metodo</th>
+              <th>qult (kPa)</th>
+              <th>qadm (kPa)</th>
+              <th>Nc</th>
+              <th>Nq</th>
+              <th>Ngamma</th>
+            </tr>
+          </thead>
+          <tbody>
+            {bearingCapacity.methods.map((method) => (
+              <tr key={method.method}>
+                <td>{method.method}</td>
+                <td>{method.qult_kpa.toFixed(1)}</td>
+                <td>{method.qadm_kpa.toFixed(1)}</td>
+                <td>{method.nc.toFixed(2)}</td>
+                <td>{method.nq.toFixed(2)}</td>
+                <td>{method.ngamma.toFixed(2)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
