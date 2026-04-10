@@ -13,7 +13,7 @@ npm run dev
 La app se abrira en `http://127.0.0.1:5173`.
 
 ## Acceso con Google
-La app usa Firebase Authentication con Google Sign-In y una lista blanca de correos definida en `src/App.jsx`.
+La app usa Firebase Authentication con Google Sign-In y una lista blanca de correos definida en `src/config/allowedEmails.js`.
 
 ## Variables de entorno
 Crea un archivo `.env` tomando como base `.env.example`:
